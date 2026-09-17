@@ -1,4 +1,4 @@
-﻿"""
+"""
 Trading Configuration & Single Source of Truth
 """
 
@@ -40,3 +40,22 @@ class UniverseConfig:
 CAPITAL_CONFIG = CapitalConfig()
 BROKER_CONFIG = BrokerConfig()
 UNIVERSE_CONFIG = UniverseConfig()
+
+
+@dataclass(frozen=True)
+class PreMarketConfig:
+    z_score_threshold: float = 3.0          # Absolute Z-score threshold for 3-sigma dislocation
+    lookback_days: int = 60                 # Lookback window for overnight beta and sigma calculation
+    min_auction_volume_ratio: float = 0.002 # Min 0.2% of 20-day ADV (filters out phantom/illiquid quotes)
+    max_auction_volume_ratio: float = 0.150 # Max 15% of 20-day ADV (filters out institutional block dumps/leaks)
+    max_imbalance_ratio: float = 0.80       # Max order book imbalance to avoid circuit freezes
+    circuit_buffer_pct: float = 0.005       # Min 0.5% distance from Upper/Lower Circuit limits
+    limit_buffer_pct: float = 0.002         # 0.20% price buffer for 9:15:00 AM limit orders
+    order_timeout_seconds: float = 3.0      # Cancel entry order if unfilled after 3.0 seconds
+    time_stop_minutes: int = 30             # Hard time stop: exit at 9:45:00 AM if trade still open
+    reversion_target_pct: float = 0.618     # Target 61.8% mean reversion towards fair value
+    max_concurrent_trades: int = 2          # Max concurrent trades for ?3L capital budget
+    min_reward_to_risk: float = 1.5         # Minimum Reward-to-Risk ratio required
+
+
+PRE_MARKET_CONFIG = PreMarketConfig()
