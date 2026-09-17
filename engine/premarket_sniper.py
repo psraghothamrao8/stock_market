@@ -110,8 +110,35 @@ class SniperOrder:
 
 
 # =====================================================================
-# Quantitative Mathematical Computations
+# Quantitative Mathematical Computations & Helpers
 # =====================================================================
+
+def round_to_tick(price: float, tick_size: float = 0.05) -> float:
+    """
+    Rounds a price to the nearest valid exchange tick (0.05 INR on NSE).
+    Enforces exchange microstructure compliance to prevent OMS reject errors.
+    """
+    if price <= 0:
+        return 0.0
+    return round(round(price / tick_size) * tick_size, 2)
+
+
+def normalize_datetime_index(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalizes DataFrame index by stripping timezone info and resetting time of day
+    to midnight, ensuring robust calendar alignment between stock and index series.
+    """
+    if df is None or df.empty:
+        return df
+    df = df.copy()
+    if isinstance(df.index, pd.DatetimeIndex):
+        if df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        df.index = df.index.normalize()
+    else:
+        df.index = pd.to_datetime(df.index).normalize()
+    return df
+
 
 def compute_overnight_gap_stats(
     stock_df: pd.DataFrame,
@@ -127,22 +154,26 @@ def compute_overnight_gap_stats(
     """
     symbol = getattr(stock_df, "symbol", "UNKNOWN")
 
-    # Clean and align dates
-    s_df = stock_df.dropna(subset=['Open', 'Close', 'Volume']).copy()
-    i_df = index_df.dropna(subset=['Open', 'Close']).copy()
+    # Clean, normalize timestamps, and align dates
+    s_clean = normalize_datetime_index(stock_df.dropna(subset=['Open', 'Close', 'Volume']))
+    i_clean = normalize_datetime_index(index_df.dropna(subset=['Open', 'Close']))
 
-    # Calculate overnight log returns: ln(Open_t / Close_{t-1})
-    s_prev_close = s_df['Close'].shift(1)
-    i_prev_close = i_df['Close'].shift(1)
+    # Drop duplicate calendar dates if present
+    s_clean = s_clean[~s_clean.index.duplicated(keep='last')].sort_index()
+    i_clean = i_clean[~i_clean.index.duplicated(keep='last')].sort_index()
 
-    s_df['gap_ret'] = np.log(s_df['Open'] / s_prev_close)
-    i_df['gap_ret'] = np.log(i_df['Open'] / i_prev_close)
+    # Calculate overnight gap returns: (Open_t - Close_{t-1}) / Close_{t-1}
+    s_prev_close = s_clean['Close'].shift(1)
+    i_prev_close = i_clean['Close'].shift(1)
+
+    s_clean['gap_ret'] = (s_clean['Open'] - s_prev_close) / s_prev_close
+    i_clean['gap_ret'] = (i_clean['Open'] - i_prev_close) / i_prev_close
 
     # Join on matching trading dates
     merged = pd.DataFrame({
-        'stock_gap': s_df['gap_ret'],
-        'stock_vol': s_df['Volume'],
-        'index_gap': i_df['gap_ret']
+        'stock_gap': s_clean['gap_ret'],
+        'stock_vol': s_clean['Volume'],
+        'index_gap': i_clean['gap_ret']
     }).dropna()
 
     if len(merged) < 20:
@@ -153,7 +184,7 @@ def compute_overnight_gap_stats(
             alpha=0.0,
             residual_sigma=0.015, # conservative 1.5% default sigma
             residual_mean=0.0,
-            adv_20=float(s_df['Volume'].tail(20).mean() if len(s_df) >= 5 else 100_000.0),
+            adv_20=float(s_clean['Volume'].tail(20).mean() if len(s_clean) >= 5 else 100_000.0),
             sample_size=len(merged)
         )
 
@@ -165,7 +196,7 @@ def compute_overnight_gap_stats(
     index_gaps = window_data['index_gap'].to_numpy()
 
     # Beta estimation via Cov(stock_gap, index_gap) / Var(index_gap)
-    var_index = np.var(index_gaps, ddof=1)
+    var_index = float(np.var(index_gaps, ddof=1))
     if var_index > 1e-10:
         cov_matrix = np.cov(stock_gaps, index_gaps, ddof=1)
         beta = float(cov_matrix[0, 1] / var_index)
@@ -246,12 +277,12 @@ class PreMarketSniperEngine:
         rejection_reasons = []
 
         # 1. Calculate raw overnight gap percentages
-        if quote.previous_close <= 0:
-            return self._build_invalid_signal(quote, hist_stats, "Invalid previous close price <= 0")
+        if quote.previous_close <= 0 or quote.equilibrium_price <= 0:
+            return self._build_invalid_signal(quote, hist_stats, "Invalid previous close or equilibrium price <= 0")
 
         stock_gap_pct = (quote.equilibrium_price - quote.previous_close) / quote.previous_close
 
-        if index_quote.previous_close > 0:
+        if index_quote.previous_close > 0 and index_quote.equilibrium_price > 0:
             index_gap_pct = (index_quote.equilibrium_price - index_quote.previous_close) / index_quote.previous_close
         else:
             index_gap_pct = 0.0
@@ -261,35 +292,40 @@ class PreMarketSniperEngine:
         residual_gap = stock_gap_pct - expected_gap_pct
 
         # 3. Standardized Z-score calculation
-        z_score = (residual_gap - hist_stats.residual_mean) / hist_stats.residual_sigma
+        sigma = hist_stats.residual_sigma if hist_stats.residual_sigma > 1e-5 else 0.015
+        z_score = (residual_gap - hist_stats.residual_mean) / sigma
 
         # 4. Imbalance Ratio (IBR) and Auction Volume Ratio (AVR)
         imbalance_ratio = calculate_imbalance_ratio(quote.total_buy_qty, quote.total_sell_qty)
         volume_ratio = quote.matched_volume / hist_stats.adv_20 if hist_stats.adv_20 > 0 else 0.0
 
-        # 5. Determine Trade Direction & Fair Price
-        fair_price = quote.previous_close * (1.0 + expected_gap_pct)
+        # 5. Determine Trade Direction & Fair Price (aligned to exchange tick size)
+        fair_price = round_to_tick(quote.previous_close * (1.0 + expected_gap_pct))
 
         if z_score <= -self.sniper_cfg.z_score_threshold:
             # Undervalued dislocation: stock opened way below beta expectation -> BUY / LONG
             direction = "LONG"
             reversion_distance = max(0.0, fair_price - quote.equilibrium_price)
-            target_price = quote.equilibrium_price + (self.sniper_cfg.reversion_target_pct * reversion_distance)
+            raw_target = quote.equilibrium_price + (self.sniper_cfg.reversion_target_pct * reversion_distance)
+            target_price = round_to_tick(raw_target)
             
             # Stop loss calculation enforcing >= 2.0 R:R
             reward = target_price - quote.equilibrium_price
             stop_distance = reward / 2.0
-            stop_loss = max(quote.lower_circuit, quote.equilibrium_price - stop_distance)
+            raw_stop = quote.equilibrium_price - stop_distance
+            stop_loss = round_to_tick(max(quote.lower_circuit, raw_stop))
             
         elif z_score >= self.sniper_cfg.z_score_threshold:
             # Overvalued dislocation: stock opened way above beta expectation -> SELL / SHORT
             direction = "SHORT"
             reversion_distance = max(0.0, quote.equilibrium_price - fair_price)
-            target_price = quote.equilibrium_price - (self.sniper_cfg.reversion_target_pct * reversion_distance)
+            raw_target = quote.equilibrium_price - (self.sniper_cfg.reversion_target_pct * reversion_distance)
+            target_price = round_to_tick(raw_target)
             
             reward = quote.equilibrium_price - target_price
             stop_distance = reward / 2.0
-            stop_loss = min(quote.upper_circuit, quote.equilibrium_price + stop_distance)
+            raw_stop = quote.equilibrium_price + stop_distance
+            stop_loss = round_to_tick(min(quote.upper_circuit, raw_stop))
         else:
             direction = "NEUTRAL"
             target_price = quote.equilibrium_price
@@ -372,7 +408,8 @@ class PreMarketSniperEngine:
         - Prioritization by statistical significance (|Z-score| descending).
         - Fixed fractional risk ceiling (Rs 3,000 max loss per trade on Rs 3 Lakh capital).
         - Concentration ceiling (Rs 75,000 max capital per trade).
-        - Precision limit order pricing with slippage buffer.
+        - Cumulative portfolio capital bounds across the execution batch.
+        - Precision limit order pricing with slippage buffer and NSE 0.05 tick size conformance.
         """
         # Circuit Breaker Check
         if self.risk_engine.is_halted:
@@ -388,6 +425,7 @@ class PreMarketSniperEngine:
 
         routed_orders: List[SniperOrder] = []
         max_trades = self.sniper_cfg.max_concurrent_trades
+        cumulative_allocated_capital = 0.0
 
         for sig in ranked_signals:
             if len(routed_orders) >= max_trades:
@@ -395,21 +433,43 @@ class PreMarketSniperEngine:
 
             is_long = (sig.direction == "LONG")
 
-            # Mathematical sizing from RiskEngine
+            # Limit Price with 20 bps buffer to ensure immediate execution at 9:15:00 AM, rounded to tick
+            buffer = self.sniper_cfg.limit_buffer_pct
+            raw_limit = sig.equilibrium_price * (1.0 + buffer if is_long else 1.0 - buffer)
+            limit_price = round_to_tick(raw_limit)
+
+            # Precision Bracket Stop Loss & Target Price aligned to tick size
+            target_price = round_to_tick(sig.target_price)
+            if is_long:
+                if target_price <= limit_price:
+                    continue
+                reward = target_price - limit_price
+                stop_distance = reward / 2.0
+                order_stop = round_to_tick(max(sig.stop_loss, limit_price - stop_distance))
+            else:
+                if target_price >= limit_price:
+                    continue
+                reward = limit_price - target_price
+                stop_distance = reward / 2.0
+                order_stop = round_to_tick(min(sig.stop_loss, limit_price + stop_distance))
+
+            # Portfolio capital allocation boundary check
+            remaining_cap = self.risk_engine.current_capital - cumulative_allocated_capital
+            if remaining_cap < limit_price:
+                break
+
+            # Mathematical sizing from RiskEngine using limit price and remaining available capital
             sizing: TradeSizingResult = self.risk_engine.calculate_position_size(
                 symbol=sig.symbol,
-                entry_price=sig.equilibrium_price,
-                stop_loss=sig.stop_loss,
-                target_price=sig.target_price,
-                is_long=is_long
+                entry_price=limit_price,
+                stop_loss=order_stop,
+                target_price=target_price,
+                is_long=is_long,
+                max_available_capital=remaining_cap
             )
 
             if not sizing.is_valid or sizing.shares <= 0:
                 continue
-
-            # Limit Price with 20 bps buffer to ensure immediate execution at 9:15:00 AM
-            buffer_multiplier = (1.0 + self.sniper_cfg.limit_buffer_pct) if is_long else (1.0 - self.sniper_cfg.limit_buffer_pct)
-            limit_price = round(sig.equilibrium_price * buffer_multiplier, 2)
 
             order = SniperOrder(
                 symbol=sig.symbol,
@@ -417,8 +477,8 @@ class PreMarketSniperEngine:
                 order_type="LIMIT",
                 quantity=sizing.shares,
                 limit_price=limit_price,
-                stop_loss=round(sig.stop_loss, 2),
-                target_price=round(sig.target_price, 2),
+                stop_loss=order_stop,
+                target_price=target_price,
                 expected_risk=round(sizing.total_risk_amount, 2),
                 capital_allocated=round(sizing.total_trade_capital, 2),
                 reward_to_risk=round(sizing.reward_to_risk_ratio, 2),
@@ -427,12 +487,14 @@ class PreMarketSniperEngine:
                 status="STAGED",
                 execution_notes=[
                     f"Z-Score: {sig.z_score:+.2f}",
-                    f"Discovered Open: Rs {sig.equilibrium_price:.2f}",
+                    f"Discovered Open (IEP): Rs {sig.equilibrium_price:.2f}",
                     f"Fair Value: Rs {sig.fair_price:.2f}",
                     f"Slippage Buffer: {self.sniper_cfg.limit_buffer_pct:.2%}",
+                    f"Tick Compliance: Valid Rs 0.05 multiple",
                     f"Kill Switch Safety: OK"
                 ]
             )
+            cumulative_allocated_capital += sizing.total_trade_capital
             routed_orders.append(order)
 
         return routed_orders
@@ -492,6 +554,24 @@ class NSEPreMarketFeedAdapter:
         self.session.headers.update(self.DEFAULT_HEADERS)
         self._cookies_initialized = False
 
+    @staticmethod
+    def _safe_float(val: Any, default: float = 0.0) -> float:
+        if val is None:
+            return default
+        try:
+            return float(str(val).replace(",", "").strip())
+        except (ValueError, TypeError):
+            return default
+
+    @staticmethod
+    def _safe_int(val: Any, default: int = 0) -> int:
+        if val is None:
+            return default
+        try:
+            return int(float(str(val).replace(",", "").strip()))
+        except (ValueError, TypeError):
+            return default
+
     def _init_session(self):
         """Initializes NSE session cookies by touching base domain."""
         if not self._cookies_initialized:
@@ -522,22 +602,25 @@ class NSEPreMarketFeedAdapter:
             if not symbol:
                 continue
 
-            prev_close = float(meta.get("previousClose", 0.0))
-            iep = float(meta.get("iep", meta.get("lastPrice", 0.0)))
-            matched_vol = int(detail.get("finalQuantity", meta.get("finalQuantity", 0)))
-            total_buy = int(detail.get("totalBuyQuantity", 0))
-            total_sell = int(detail.get("totalSellQuantity", 0))
+            prev_close = self._safe_float(meta.get("previousClose"), 0.0)
+            iep = self._safe_float(meta.get("iep"), self._safe_float(meta.get("lastPrice"), 0.0))
+            if prev_close <= 0 or iep <= 0:
+                continue
 
-            # Circuit bands: defaults to +/- 10% if not explicitly in feed
-            lower_circuit = round(prev_close * 0.90, 2)
-            upper_circuit = round(prev_close * 1.10, 2)
+            matched_vol = self._safe_int(detail.get("finalQuantity", meta.get("finalQuantity")), 0)
+            total_buy = self._safe_int(detail.get("totalBuyQuantity"), 0)
+            total_sell = self._safe_int(detail.get("totalSellQuantity"), 0)
+
+            # Circuit bands: defaults to +/- 10% if not explicitly in feed, aligned to tick size
+            lower_circuit = round_to_tick(prev_close * 0.90)
+            upper_circuit = round_to_tick(prev_close * 1.10)
 
             stock_quotes.append(
                 AuctionQuote(
                     symbol=f"{symbol}.NS",
                     timestamp=now,
                     previous_close=prev_close,
-                    equilibrium_price=iep,
+                    equilibrium_price=round_to_tick(iep),
                     matched_volume=matched_vol,
                     total_buy_qty=total_buy,
                     total_sell_qty=total_sell,
@@ -563,20 +646,21 @@ class NSEPreMarketFeedAdapter:
                 indices = resp.json().get("data", [])
                 for idx in indices:
                     if idx.get("index") == "NIFTY 50":
-                        p_close = float(idx.get("previousClose", 0.0))
-                        last_p = float(idx.get("last", p_close))
-                        return AuctionQuote(
-                            symbol="^NSEI",
-                            timestamp=now,
-                            previous_close=p_close,
-                            equilibrium_price=last_p,
-                            matched_volume=0,
-                            total_buy_qty=0,
-                            total_sell_qty=0,
-                            lower_circuit=p_close * 0.85,
-                            upper_circuit=p_close * 1.15,
-                            is_fno=False
-                        )
+                        p_close = self._safe_float(idx.get("previousClose"), 0.0)
+                        last_p = self._safe_float(idx.get("last"), p_close)
+                        if p_close > 0:
+                            return AuctionQuote(
+                                symbol="^NSEI",
+                                timestamp=now,
+                                previous_close=p_close,
+                                equilibrium_price=round_to_tick(last_p),
+                                matched_volume=0,
+                                total_buy_qty=0,
+                                total_sell_qty=0,
+                                lower_circuit=round_to_tick(p_close * 0.85),
+                                upper_circuit=round_to_tick(p_close * 1.15),
+                                is_fno=False
+                            )
         except Exception:
             pass
 
@@ -595,12 +679,12 @@ class NSEPreMarketFeedAdapter:
             symbol="^NSEI",
             timestamp=now,
             previous_close=base_index_price,
-            equilibrium_price=base_index_price * (1.0 + median_gap),
+            equilibrium_price=round_to_tick(base_index_price * (1.0 + median_gap)),
             matched_volume=0,
             total_buy_qty=0,
             total_sell_qty=0,
-            lower_circuit=base_index_price * 0.85,
-            upper_circuit=base_index_price * 1.15,
+            lower_circuit=round_to_tick(base_index_price * 0.85),
+            upper_circuit=round_to_tick(base_index_price * 1.15),
             is_fno=False
         )
 
@@ -624,7 +708,7 @@ class SyntheticPreMarketGenerator:
         imbalance: float = 0.10            # Moderate positive buy demand
     ) -> Tuple[AuctionQuote, AuctionQuote, HistoricalOvernightStats]:
         """
-        Constructs an exact synthetic test scenario.
+        Constructs an exact synthetic test scenario conforming to NSE tick rules.
         """
         now = datetime.now()
 
@@ -635,7 +719,7 @@ class SyntheticPreMarketGenerator:
         residual = sigma_multiple * residual_sigma
         total_gap = expected_gap + residual
 
-        equilibrium_price = round(prev_close * (1.0 + total_gap), 2)
+        equilibrium_price = round_to_tick(prev_close * (1.0 + total_gap))
         matched_volume = int(adv_20 * volume_pct_adv)
 
         # Imbalance to buy/sell quantities
@@ -651,8 +735,8 @@ class SyntheticPreMarketGenerator:
             matched_volume=matched_volume,
             total_buy_qty=buy_qty,
             total_sell_qty=sell_qty,
-            lower_circuit=round(prev_close * 0.90, 2),
-            upper_circuit=round(prev_close * 1.10, 2),
+            lower_circuit=round_to_tick(prev_close * 0.90),
+            upper_circuit=round_to_tick(prev_close * 1.10),
             is_fno=True
         )
 
@@ -661,12 +745,12 @@ class SyntheticPreMarketGenerator:
             symbol="^NSEI",
             timestamp=now,
             previous_close=index_prev,
-            equilibrium_price=round(index_prev * (1.0 + index_gap_pct), 2),
+            equilibrium_price=round_to_tick(index_prev * (1.0 + index_gap_pct)),
             matched_volume=0,
             total_buy_qty=0,
             total_sell_qty=0,
-            lower_circuit=round(index_prev * 0.85, 2),
-            upper_circuit=round(index_prev * 1.15, 2),
+            lower_circuit=round_to_tick(index_prev * 0.85),
+            upper_circuit=round_to_tick(index_prev * 1.15),
             is_fno=False
         )
 

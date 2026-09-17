@@ -16,6 +16,9 @@ from engine.premarket_sniper import (
     SyntheticPreMarketGenerator,
     calculate_imbalance_ratio,
     compute_overnight_gap_stats,
+    round_to_tick,
+    normalize_datetime_index,
+    NSEPreMarketFeedAdapter,
 )
 
 
@@ -267,3 +270,149 @@ def test_max_concurrent_trades_constraint(base_setup):
     assert "RELIANCE.NS" in routed_symbols
     assert "TCS.NS" in routed_symbols
     assert "INFY.NS" not in routed_symbols
+
+
+def test_timezone_and_timestamp_normalization():
+    # Test 1: Tz-aware stock DataFrame (Asia/Kolkata) with tz-naive index DataFrame
+    dates_stock = pd.date_range("2026-01-01 09:15", periods=30, freq="B", tz="Asia/Kolkata")
+    dates_index = pd.date_range("2026-01-01 00:00", periods=30, freq="B")
+
+    s_df = pd.DataFrame({
+        "Open": [100.0 + i for i in range(30)],
+        "High": [102.0 + i for i in range(30)],
+        "Low": [98.0 + i for i in range(30)],
+        "Close": [101.0 + i for i in range(30)],
+        "Volume": [500_000] * 30
+    }, index=dates_stock)
+
+    i_df = pd.DataFrame({
+        "Open": [20000.0 + i * 10 for i in range(30)],
+        "High": [20100.0 + i * 10 for i in range(30)],
+        "Low": [19900.0 + i * 10 for i in range(30)],
+        "Close": [20050.0 + i * 10 for i in range(30)],
+        "Volume": [10_000_000] * 30
+    }, index=dates_index)
+
+    # Must execute cleanly without TypeError and correctly match calendar dates
+    stats = compute_overnight_gap_stats(s_df, i_df, lookback_days=25)
+    assert stats.sample_size >= 25, f"Expected >= 25 matched dates, got {stats.sample_size}"
+    assert stats.adv_20 == 500_000.0
+
+
+def test_tick_size_compliance(base_setup):
+    engine, _, _, _ = base_setup
+    # Verify helper rounding
+    assert round_to_tick(2908.12) == 2908.10
+    assert round_to_tick(2908.13) == 2908.15
+    assert round_to_tick(2908.17) == 2908.15
+    assert round_to_tick(2908.18) == 2908.20
+
+    quote, idx_quote, h_stats = SyntheticPreMarketGenerator.create_scenario(
+        symbol="RELIANCE.NS",
+        prev_close=3000.0,
+        sigma_multiple=-3.5
+    )
+    sig = engine.evaluate_auction_dislocation(quote, idx_quote, h_stats)
+    assert sig.is_actionable
+
+    # Verify that fair price, target, and stop loss are strictly on the 0.05 tick
+    for price in [sig.fair_price, sig.target_price, sig.stop_loss]:
+        remainder = round(price * 20) - (price * 20)
+        assert abs(remainder) < 1e-5, f"Price {price} is not a valid 0.05 multiple"
+
+    orders = engine.route_sniping_orders([sig])
+    assert len(orders) == 1
+    o = orders[0]
+    for p in [o.limit_price, o.stop_loss, o.target_price]:
+        remainder = round(p * 20) - (p * 20)
+        assert abs(remainder) < 1e-5, f"Order price {p} is not a valid 0.05 multiple"
+
+
+def test_directional_safety_in_risk_engine():
+    risk_engine = RiskEngine()
+
+    # Long with target below entry -> MUST be rejected
+    res_long_bad = risk_engine.calculate_position_size("LONG_BAD", 100.0, 90.0, 80.0, is_long=True)
+    assert not res_long_bad.is_valid
+    assert "Target price must be strictly above entry price" in res_long_bad.rejection_reason
+
+    # Short with stop below entry -> MUST be rejected
+    res_short_stop_bad = risk_engine.calculate_position_size("SHORT_BAD", 100.0, 90.0, 70.0, is_long=False)
+    assert not res_short_stop_bad.is_valid
+    assert "Stop loss must be strictly above entry price for short positions." in res_short_stop_bad.rejection_reason
+
+    # Short with target above entry -> MUST be rejected
+    res_short_tp_bad = risk_engine.calculate_position_size("SHORT_TP_BAD", 100.0, 110.0, 120.0, is_long=False)
+    assert not res_short_tp_bad.is_valid
+    assert "Target price must be strictly below entry price for short positions." in res_short_tp_bad.rejection_reason
+
+
+def test_zero_and_negative_entry_price_rejected():
+    risk_engine = RiskEngine()
+    # Zero entry price
+    res_zero = risk_engine.calculate_position_size("ZERO", 0.0, -10.0, 20.0, is_long=True)
+    assert not res_zero.is_valid
+    assert "Entry price must be strictly positive" in res_zero.rejection_reason
+
+    # Negative entry price
+    res_neg = risk_engine.calculate_position_size("NEG", -10.0, -20.0, 20.0, is_long=True)
+    assert not res_neg.is_valid
+    assert "Entry price must be strictly positive" in res_neg.rejection_reason
+
+
+def test_limit_price_risk_and_capital_bounds(base_setup):
+    engine, _, _, capital_cfg = base_setup
+    quote, idx_quote, h_stats = SyntheticPreMarketGenerator.create_scenario(
+        symbol="RELIANCE.NS",
+        prev_close=3000.0,
+        sigma_multiple=-3.5
+    )
+    sig = engine.evaluate_auction_dislocation(quote, idx_quote, h_stats)
+    orders = engine.route_sniping_orders([sig])
+    assert len(orders) == 1
+    order = orders[0]
+
+    # At the worst-case limit fill:
+    # 1. Capital allocated must be <= Rs 75,000 (25% capital ceiling)
+    assert order.capital_allocated <= capital_cfg.total_capital * capital_cfg.max_portfolio_allocation_pct
+    assert order.quantity * order.limit_price <= 75_000.0
+
+    # 2. Risk must be <= Rs 3,000 (1% risk ceiling)
+    worst_case_risk = order.quantity * (order.limit_price - order.stop_loss)
+    assert worst_case_risk <= 3_000.0
+    assert order.expected_risk <= 3_000.0
+
+    # 3. Reward-to-Risk must be >= 1.5:1
+    assert order.reward_to_risk >= 1.5
+
+
+def test_batch_capital_allocation_ceiling():
+    cap_cfg = CapitalConfig(total_capital=100_000.0) # Rs 1 Lakh capital
+    sniper_cfg = PreMarketConfig(max_concurrent_trades=4)
+    risk_engine = RiskEngine(cap_cfg)
+    engine = PreMarketSniperEngine(cap_cfg, sniper_cfg, risk_engine)
+
+    signals = []
+    for sym in ["SYM1.NS", "SYM2.NS", "SYM3.NS", "SYM4.NS"]:
+        q, idx_q, hs = SyntheticPreMarketGenerator.create_scenario(
+            symbol=sym,
+            prev_close=1000.0,
+            sigma_multiple=-3.5
+        )
+        sig = engine.evaluate_auction_dislocation(q, idx_q, hs)
+        signals.append(sig)
+
+    orders = engine.route_sniping_orders(signals)
+    total_alloc = sum(o.capital_allocated for o in orders)
+    # Total allocated capital across all staged orders must not exceed total capital
+    assert total_alloc <= 100_000.0
+
+
+def test_safe_parsing_of_malformed_live_feed():
+    adapter = NSEPreMarketFeedAdapter()
+    assert adapter._safe_float(None, 10.0) == 10.0
+    assert adapter._safe_float("1,250.75", 0.0) == 1250.75
+    assert adapter._safe_float("invalid", 5.0) == 5.0
+    assert adapter._safe_int(None, 0) == 0
+    assert adapter._safe_int("5,000", 0) == 5000
+    assert adapter._safe_int("3.14", 0) == 3

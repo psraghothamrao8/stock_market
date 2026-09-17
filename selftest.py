@@ -171,9 +171,34 @@ def run_tests():
     assert halted_engine.risk_engine.is_halted
     assert len(halted_orders) == 0
 
+    # Test Case 9: Tick-Size Microstructure Compliance (0.05 INR multiple)
+    from engine.premarket_sniper import round_to_tick
+    assert round_to_tick(2908.12) == 2908.10
+    assert round_to_tick(2908.13) == 2908.15
+    for p in [orders[0].limit_price, orders[0].stop_loss, orders[0].target_price]:
+        remainder = round(p * 20) - (p * 20)
+        assert abs(remainder) < 1e-5, f"Order price {p} violates NSE 0.05 tick size"
+    print("\nTest 9 - NSE 0.05 Tick Size Compliance:")
+    print(f"  Limit Price: Rs {orders[0].limit_price:.2f} (Tick Valid: True)")
+    print(f"  Stop Loss:   Rs {orders[0].stop_loss:.2f} (Tick Valid: True)")
+    print(f"  Target:      Rs {orders[0].target_price:.2f} (Tick Valid: True)")
+
+    # Test Case 10: Directional Safety Guard & Non-Positive Price Protection
+    zero_entry_res = sniper_engine.risk_engine.calculate_position_size("ZERO", 0.0, -10.0, 20.0, is_long=True)
+    assert not zero_entry_res.is_valid
+    wrong_direction_res = sniper_engine.risk_engine.calculate_position_size("WRONG_DIR", 100.0, 90.0, 80.0, is_long=True)
+    assert not wrong_direction_res.is_valid
+    short_wrong_stop_res = sniper_engine.risk_engine.calculate_position_size("SHORT_WRONG", 100.0, 90.0, 70.0, is_long=False)
+    assert not short_wrong_stop_res.is_valid
+    print("\nTest 10 - Directional Risk & Zero Price Protection:")
+    print(f"  Zero Price Rejection: {not zero_entry_res.is_valid} (Expected: True)")
+    print(f"  Long Target < Entry Rejection: {not wrong_direction_res.is_valid} (Expected: True)")
+    print(f"  Short Stop < Entry Rejection: {not short_wrong_stop_res.is_valid} (Expected: True)")
+
     print("\nALL PRE-MARKET SNIPING ENGINE SELF-TESTS PASSED!")
 
 
 if __name__ == "__main__":
     run_tests()
+
 

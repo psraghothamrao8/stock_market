@@ -24,6 +24,8 @@ from .premarket_sniper import (
     SyntheticPreMarketGenerator,
     compute_overnight_gap_stats,
     calculate_imbalance_ratio,
+    round_to_tick,
+    normalize_datetime_index,
 )
 
 __all__ = [
@@ -49,4 +51,6 @@ __all__ = [
     "SyntheticPreMarketGenerator",
     "compute_overnight_gap_stats",
     "calculate_imbalance_ratio",
+    "round_to_tick",
+    "normalize_datetime_index",
 ]
