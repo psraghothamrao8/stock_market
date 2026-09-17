@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NSE Pre-Market 3-Sigma Dislocation Sniper</title>
+    <style>
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-card: #111827;
+            --bg-card-alt: #162032;
+            --border-card: #1e293b;
+            --border-subtle: #2d3748;
+            --text-main: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --green: #10b981;
+            --green-glow: rgba(16, 185, 129, 0.2);
+            --red: #ef4444;
+            --red-glow: rgba(239, 68, 68, 0.2);
+            --blue: #3b82f6;
+            --blue-glow: rgba(59, 130, 246, 0.2);
+            --amber: #f59e0b;
+            --purple: #8b5cf6;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.5;
+            padding: 0;
+            margin: 0;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px 16px 64px 16px;
+        }
+
+        /* Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-card);
+            margin-bottom: 24px;
+        }
+
+        .brand-section h1 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .brand-section p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-top: 4px;
+        }
+
+        .header-meta {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 6px;
+        }
+
+        .time-badge {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            background: var(--bg-card);
+            padding: 4px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border-card);
+        }
+
+        /* Badges & Pills */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .badge-live {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.4);
+        }
+
+        .badge-fallback {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.4);
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .pulse-dot.live {
+            background: #10b981;
+            box-shadow: 0 0 8px #10b981;
+            animation: pulse 2s infinite;
+        }
+
+        .pulse-dot.fallback {
+            background: #f59e0b;
+            box-shadow: 0 0 8px #f59e0b;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+
+        .badge-buy {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            border: 1px solid #059669;
+        }
+
+        .badge-sell {
+            background: rgba(239, 68, 68, 0.2);
+            color: #f87171;
+            border: 1px solid #dc2626;
+        }
+
+        .badge-z-buy {
+            background: rgba(16, 185, 129, 0.25);
+            color: #34d399;
+            font-weight: 700;
+        }
+
+        .badge-z-sell {
+            background: rgba(239, 68, 68, 0.25);
+            color: #f87171;
+            font-weight: 700;
+        }
+
+        .badge-z-normal {
+            background: rgba(148, 163, 184, 0.1);
+            color: var(--text-secondary);
+        }
+
+        .badge-actionable {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            border: 1px solid #10b981;
+        }
+
+        .badge-rejected {
+            background: rgba(100, 116, 139, 0.15);
+            color: #94a3b8;
+            font-size: 0.7rem;
+        }
+
+        .pill-tag {
+            background: rgba(59, 130, 246, 0.15);
+            color: #93c5fd;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-family: monospace;
+        }
+
+        .status-staged {
+            color: #38bdf8;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+        }
+
+        /* Hero Alerts */
+        .alert-banner {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            padding: 16px 20px;
+            border-radius: 10px;
+            margin-bottom: 24px;
+        }
+
+        .alert-success {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #e6fffa;
+        }
+
+        .alert-neutral {
+            background: rgba(59, 130, 246, 0.08);
+            border: 1px solid rgba(59, 130, 246, 0.25);
+            color: #eff6ff;
+        }
+
+        .alert-icon {
+            font-size: 1.5rem;
+            line-height: 1;
+        }
+
+        .alert-content strong {
+            font-size: 1.05rem;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .alert-content p {
+            font-size: 0.88rem;
+            color: var(--text-secondary);
+        }
+
+        /* KPI Metric Cards Grid */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .kpi-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: 10px;
+            padding: 16px 18px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: transform 0.15s ease, border-color 0.15s ease;
+        }
+
+        .kpi-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--border-subtle);
+        }
+
+        .kpi-title {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+        }
+
+        .kpi-value {
+            font-size: 1.45rem;
+            font-weight: 700;
+            color: var(--text-main);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        }
+
+        .kpi-subtext {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 6px;
+        }
+
+        /* Section Containers */
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-badge {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            padding: 2px 8px;
+            border-radius: 6px;
+        }
+
+        /* Tables */
+        .card-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 32px;
+        }
+
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        .table-custom {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.88rem;
+            text-align: left;
+        }
+
+        .table-custom th {
+            background: #0d131f;
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border-card);
+            white-space: nowrap;
+        }
+
+        .table-custom td {
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(30, 41, 59, 0.7);
+            white-space: nowrap;
+        }
+
+        .table-custom tbody tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        /* Filter Controls */
+        .controls-bar {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            color: var(--text-secondary);
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .filter-btn.active {
+            background: var(--blue);
+            color: #fff;
+            border-color: var(--blue);
+        }
+
+        .search-input {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            color: var(--text-main);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.82rem;
+            outline: none;
+            width: 180px;
+        }
+
+        .search-input:focus {
+            border-color: var(--blue);
+        }
+
+        /* Utility classes */
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+        .text-green { color: #34d399; }
+        .text-red { color: #f87171; }
+        .highlight-gold { color: #fbbf24; font-weight: 600; }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 48px 20px;
+        }
+
+        .empty-icon {
+            font-size: 2.8rem;
+            margin-bottom: 12px;
+        }
+
+        .empty-state h3 {
+            font-size: 1.15rem;
+            margin-bottom: 6px;
+        }
+
+        .empty-state p {
+            color: var(--text-secondary);
+            max-width: 500px;
+            margin: 0 auto;
+            font-size: 0.88rem;
+        }
+
+        /* Architecture Grid */
+        .arch-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .arch-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .arch-card h4 {
+            font-size: 0.95rem;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #60a5fa;
+        }
+
+        .arch-card p {
+            font-size: 0.84rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .formula-box {
+            background: #080d17;
+            border: 1px solid var(--border-card);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: #38bdf8;
+            margin: 10px 0;
+            overflow-x: auto;
+        }
+
+        /* Note Box */
+        .note-box {
+            background: rgba(245, 158, 11, 0.08);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 0.82rem;
+            color: #fef3c7;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .note-tag {
+            background: #b45309;
+            color: #fff;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 700;
+        }
+
+        /* Footer */
+        footer {
+            border-top: 1px solid var(--border-card);
+            padding-top: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            color: var(--text-muted);
+            font-size: 0.82rem;
+        }
+
+        footer a {
+            color: var(--blue);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header-meta {
+                align-items: flex-start;
+            }
+            .kpi-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .brand-section h1 {
+                font-size: 1.3rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .kpi-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="brand-section">
+                <h1>⚡ NSE Pre-Market 3-Sigma Sniper</h1>
+                <p>Indicative Equilibrium Price (IEP) Mean-Reversion Engine & Precision 09:15:00 AM Order Dispatch</p>
+            </div>
+            <div class="header-meta">
+                <span class="badge badge-live"><span class="pulse-dot live"></span> LIVE NSE AUCTION FEED</span>
+                <div class="time-badge">Scanned: 2026-09-18 00:51:09 IST</div>
+                <div class="time-badge" style="font-size: 0.75rem; color: var(--text-muted);">2026-09-17 19:21:09 UTC</div>
+            </div>
+        </header>
+
+        
+
+        
+        <div class="alert-banner alert-neutral">
+            <div class="alert-icon">🛡️</div>
+            <div class="alert-content">
+                <strong>Capital Preserved — 0 Actionable Dislocation Orders</strong>
+                <p>All 19 scanned assets traded within acceptable statistical variance (|Z| < 3.0σ) or were protected by circuit guards. Zero capital committed.</p>
+            </div>
+        </div>
+        
+
+        <!-- KPI Metric Summary Cards -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-title">Total Account Capital</div>
+                <div class="kpi-value">₹300,000</div>
+                <div class="kpi-subtext">Single Source Budget</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-title">Capital Allocated</div>
+                <div class="kpi-value">₹0.00</div>
+                <div class="kpi-subtext">0.0% of budget (Limit &le; 50%)</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-title">Portfolio Heat (Risk)</div>
+                <div class="kpi-value">₹0.00</div>
+                <div class="kpi-subtext">0.00% of capital (Max 4.0%)</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-title">Actionable Setups</div>
+                <div class="kpi-value" style="color: #94a3b8;">0</div>
+                <div class="kpi-subtext">&ge; 3.0σ + Microstructure verified</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-title">Daily Loss Kill-Switch</div>
+                <div class="kpi-value" style="color: #f87171;">₹7,500</div>
+                <div class="kpi-subtext">2.5% Drawdown Circuit Breaker</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-title">Time Window</div>
+                <div class="kpi-value" style="font-size: 1.15rem; color: #38bdf8;">09:15:00.050</div>
+                <div class="kpi-subtext">3.0s Timeout | 09:45 Hard Exit</div>
+            </div>
+        </div>
+
+        <!-- Section 1: Precision Sniping Orders -->
+        <div class="section-header">
+            <div class="section-title">
+                <span>🎯 09:15:00 AM Precision Execution Schedule</span>
+                <span class="section-badge">0 Orders Staged</span>
+            </div>
+        </div>
+        <div class="card-panel">
+            
+        <div class="empty-state">
+            <div class="empty-icon">🛡️</div>
+            <h3>No Actionable Sniping Orders Staged</h3>
+            <p>No symbols breached the +/-3.0-Sigma dislocation threshold or passed microstructure order book checks today. Capital remains 100% unencumbered and protected.</p>
+        </div>
+        
+        </div>
+
+        <!-- Section 2: Complete Call Auction Scan -->
+        <div class="section-header">
+            <div class="section-title">
+                <span>📊 09:08 AM Call Auction Complete Dislocation Scan</span>
+                <span class="section-badge">19 Symbols Scanned</span>
+            </div>
+            <div class="controls-bar">
+                <input type="text" id="symbolSearch" class="search-input" placeholder="Search symbol..." onkeyup="filterTable()">
+                <button class="filter-btn active" onclick="setFilter('all', this)">All (19)</button>
+                <button class="filter-btn" onclick="setFilter('actionable', this)">Actionable (0)</button>
+                <button class="filter-btn" onclick="setFilter('rejected', this)">Rejected (19)</button>
+            </div>
+        </div>
+        <div class="card-panel">
+            <div class="table-responsive">
+                <table class="table-custom" id="scanTable">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th class="text-right">Prev Close</th>
+                            <th class="text-right">9:08 IEP</th>
+                            <th class="text-right">Stock Gap</th>
+                            <th class="text-right">Nifty Gap</th>
+                            <th class="text-right">Beta</th>
+                            <th class="text-right">Exp Gap</th>
+                            <th class="text-right">Res Gap</th>
+                            <th class="text-right">Sigma</th>
+                            <th class="text-center">Z-Score</th>
+                            <th class="text-right">AVR %</th>
+                            <th class="text-right">IBR</th>
+                            <th>Decision</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        
+        <tr class="row-rejected" data-symbol="reliance">
+            <td><strong>RELIANCE</strong></td>
+            <td class="text-right font-mono">₹1,240.0</td>
+            <td class="text-right font-mono">₹1,244.8</td>
+            <td class="text-right font-mono text-green">+0.39%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">0.85</td>
+            <td class="text-right font-mono">+0.14%</td>
+            <td class="text-right font-mono">+0.25%</td>
+            <td class="text-right font-mono">0.28%</td>
+            <td class="text-center"><span class="badge badge-z-normal">+0.87σ</span></td>
+            <td class="text-right font-mono">0.81%</td>
+            <td class="text-right font-mono">-0.12</td>
+            <td><span class="badge badge-rejected" title="Z-score (+0.87) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="bajfinance">
+            <td><strong>BAJFINANCE</strong></td>
+            <td class="text-right font-mono">₹1,006.2</td>
+            <td class="text-right font-mono">₹1,010.0</td>
+            <td class="text-right font-mono text-green">+0.38%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">1.52</td>
+            <td class="text-right font-mono">+0.26%</td>
+            <td class="text-right font-mono">+0.12%</td>
+            <td class="text-right font-mono">0.88%</td>
+            <td class="text-center"><span class="badge badge-z-normal">+0.13σ</span></td>
+            <td class="text-right font-mono">0.13%</td>
+            <td class="text-right font-mono">+0.52</td>
+            <td><span class="badge badge-rejected" title="Z-score (+0.13) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="bhartiartl">
+            <td><strong>BHARTIARTL</strong></td>
+            <td class="text-right font-mono">₹1,835.0</td>
+            <td class="text-right font-mono">₹1,841.8</td>
+            <td class="text-right font-mono text-green">+0.37%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">0.80</td>
+            <td class="text-right font-mono">+0.21%</td>
+            <td class="text-right font-mono">+0.16%</td>
+            <td class="text-right font-mono">0.59%</td>
+            <td class="text-center"><span class="badge badge-z-normal">+0.26σ</span></td>
+            <td class="text-right font-mono">1.63%</td>
+            <td class="text-right font-mono">-0.50</td>
+            <td><span class="badge badge-rejected" title="Z-score (+0.26) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="powergrid">
+            <td><strong>POWERGRID</strong></td>
+            <td class="text-right font-mono">₹262.8</td>
+            <td class="text-right font-mono">₹263.5</td>
+            <td class="text-right font-mono text-green">+0.27%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">0.32</td>
+            <td class="text-right font-mono">+0.05%</td>
+            <td class="text-right font-mono">+0.21%</td>
+            <td class="text-right font-mono">0.56%</td>
+            <td class="text-center"><span class="badge badge-z-normal">+0.38σ</span></td>
+            <td class="text-right font-mono">0.08%</td>
+            <td class="text-right font-mono">-0.43</td>
+            <td><span class="badge badge-rejected" title="Z-score (+0.38) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="itc">
+            <td><strong>ITC</strong></td>
+            <td class="text-right font-mono">₹264.1</td>
+            <td class="text-right font-mono">₹264.8</td>
+            <td class="text-right font-mono text-green">+0.25%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">0.62</td>
+            <td class="text-right font-mono">+0.22%</td>
+            <td class="text-right font-mono">+0.02%</td>
+            <td class="text-right font-mono">0.39%</td>
+            <td class="text-center"><span class="badge badge-z-normal">+0.06σ</span></td>
+            <td class="text-right font-mono">0.37%</td>
+            <td class="text-right font-mono">-0.09</td>
+            <td><span class="badge badge-rejected" title="Z-score (+0.06) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="ntpc">
+            <td><strong>NTPC</strong></td>
+            <td class="text-right font-mono">₹327.0</td>
+            <td class="text-right font-mono">₹327.8</td>
+            <td class="text-right font-mono text-green">+0.24%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">0.35</td>
+            <td class="text-right font-mono">+0.01%</td>
+            <td class="text-right font-mono">+0.23%</td>
+            <td class="text-right font-mono">0.36%</td>
+            <td class="text-center"><span class="badge badge-z-normal">+0.64σ</span></td>
+            <td class="text-right font-mono">0.07%</td>
+            <td class="text-right font-mono">-0.41</td>
+            <td><span class="badge badge-rejected" title="Z-score (+0.64) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="lt">
+            <td><strong>LT</strong></td>
+            <td class="text-right font-mono">₹3,807.7</td>
+            <td class="text-right font-mono">₹3,811.0</td>
+            <td class="text-right font-mono text-green">+0.09%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">1.09</td>
+            <td class="text-right font-mono">+0.27%</td>
+            <td class="text-right font-mono">-0.18%</td>
+            <td class="text-right font-mono">0.29%</td>
+            <td class="text-center"><span class="badge badge-z-normal">-0.63σ</span></td>
+            <td class="text-right font-mono">0.27%</td>
+            <td class="text-right font-mono">-0.27</td>
+            <td><span class="badge badge-rejected" title="Z-score (-0.63) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="hindunilvr">
+            <td><strong>HINDUNILVR</strong></td>
+            <td class="text-right font-mono">₹1,962.0</td>
+            <td class="text-right font-mono">₹1,962.0</td>
+            <td class="text-right font-mono text-red">+0.00%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">0.67</td>
+            <td class="text-right font-mono">+0.17%</td>
+            <td class="text-right font-mono">-0.17%</td>
+            <td class="text-right font-mono">0.30%</td>
+            <td class="text-center"><span class="badge badge-z-normal">-0.57σ</span></td>
+            <td class="text-right font-mono">0.07%</td>
+            <td class="text-right font-mono">-0.30</td>
+            <td><span class="badge badge-rejected" title="Z-score (-0.57) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="lici">
+            <td><strong>LICI</strong></td>
+            <td class="text-right font-mono">₹395.5</td>
+            <td class="text-right font-mono">₹395.5</td>
+            <td class="text-right font-mono text-red">+0.00%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">0.51</td>
+            <td class="text-right font-mono">+0.00%</td>
+            <td class="text-right font-mono">-0.00%</td>
+            <td class="text-right font-mono">1.20%</td>
+            <td class="text-center"><span class="badge badge-z-normal">-0.00σ</span></td>
+            <td class="text-right font-mono">0.20%</td>
+            <td class="text-right font-mono">-0.22</td>
+            <td><span class="badge badge-rejected" title="Z-score (-0.00) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="sunpharma">
+            <td><strong>SUNPHARMA</strong></td>
+            <td class="text-right font-mono">₹1,853.5</td>
+            <td class="text-right font-mono">₹1,853.5</td>
+            <td class="text-right font-mono text-red">+0.00%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">0.51</td>
+            <td class="text-right font-mono">+0.14%</td>
+            <td class="text-right font-mono">-0.14%</td>
+            <td class="text-right font-mono">0.43%</td>
+            <td class="text-center"><span class="badge badge-z-normal">-0.32σ</span></td>
+            <td class="text-right font-mono">0.11%</td>
+            <td class="text-right font-mono">-0.39</td>
+            <td><span class="badge badge-rejected" title="Z-score (-0.32) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="maruti">
+            <td><strong>MARUTI</strong></td>
+            <td class="text-right font-mono">₹12,166.0</td>
+            <td class="text-right font-mono">₹12,165.0</td>
+            <td class="text-right font-mono text-red">-0.01%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">0.87</td>
+            <td class="text-right font-mono">+0.26%</td>
+            <td class="text-right font-mono">-0.27%</td>
+            <td class="text-right font-mono">0.40%</td>
+            <td class="text-center"><span class="badge badge-z-normal">-0.68σ</span></td>
+            <td class="text-right font-mono">0.14%</td>
+            <td class="text-right font-mono">-0.03</td>
+            <td><span class="badge badge-rejected" title="Z-score (-0.68) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="sbin">
+            <td><strong>SBIN</strong></td>
+            <td class="text-right font-mono">₹991.4</td>
+            <td class="text-right font-mono">₹991.2</td>
+            <td class="text-right font-mono text-red">-0.02%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">0.89</td>
+            <td class="text-right font-mono">+0.19%</td>
+            <td class="text-right font-mono">-0.21%</td>
+            <td class="text-right font-mono">0.30%</td>
+            <td class="text-center"><span class="badge badge-z-normal">-0.70σ</span></td>
+            <td class="text-right font-mono">0.59%</td>
+            <td class="text-right font-mono">-0.53</td>
+            <td><span class="badge badge-rejected" title="Z-score (-0.70) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="titan">
+            <td><strong>TITAN</strong></td>
+            <td class="text-right font-mono">₹4,908.5</td>
+            <td class="text-right font-mono">₹4,895.0</td>
+            <td class="text-right font-mono text-red">-0.28%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">0.71</td>
+            <td class="text-right font-mono">+0.06%</td>
+            <td class="text-right font-mono">-0.34%</td>
+            <td class="text-right font-mono">0.48%</td>
+            <td class="text-center"><span class="badge badge-z-normal">-0.71σ</span></td>
+            <td class="text-right font-mono">0.10%</td>
+            <td class="text-right font-mono">-0.40</td>
+            <td><span class="badge badge-rejected" title="Z-score (-0.71) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="infy">
+            <td><strong>INFY</strong></td>
+            <td class="text-right font-mono">₹1,060.0</td>
+            <td class="text-right font-mono">₹1,054.9</td>
+            <td class="text-right font-mono text-red">-0.48%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">2.13</td>
+            <td class="text-right font-mono">+0.64%</td>
+            <td class="text-right font-mono">-1.13%</td>
+            <td class="text-right font-mono">1.05%</td>
+            <td class="text-center"><span class="badge badge-z-normal">-1.07σ</span></td>
+            <td class="text-right font-mono">0.26%</td>
+            <td class="text-right font-mono">+0.09</td>
+            <td><span class="badge badge-rejected" title="Z-score (-1.07) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="icicibank">
+            <td><strong>ICICIBANK</strong></td>
+            <td class="text-right font-mono">₹1,358.8</td>
+            <td class="text-right font-mono">₹1,352.0</td>
+            <td class="text-right font-mono text-red">-0.50%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">0.92</td>
+            <td class="text-right font-mono">+0.26%</td>
+            <td class="text-right font-mono">-0.76%</td>
+            <td class="text-right font-mono">0.34%</td>
+            <td class="text-center"><span class="badge badge-z-normal">-2.21σ</span></td>
+            <td class="text-right font-mono">0.30%</td>
+            <td class="text-right font-mono">-0.29</td>
+            <td><span class="badge badge-rejected" title="Z-score (-2.21) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="hdfcbank">
+            <td><strong>HDFCBANK</strong></td>
+            <td class="text-right font-mono">₹721.5</td>
+            <td class="text-right font-mono">₹717.5</td>
+            <td class="text-right font-mono text-red">-0.55%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">1.48</td>
+            <td class="text-right font-mono">+0.26%</td>
+            <td class="text-right font-mono">-0.81%</td>
+            <td class="text-right font-mono">0.57%</td>
+            <td class="text-center"><span class="badge badge-z-normal">-1.42σ</span></td>
+            <td class="text-right font-mono">1.86%</td>
+            <td class="text-right font-mono">+0.08</td>
+            <td><span class="badge badge-rejected" title="Z-score (-1.42) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="ongc">
+            <td><strong>ONGC</strong></td>
+            <td class="text-right font-mono">₹236.8</td>
+            <td class="text-right font-mono">₹235.1</td>
+            <td class="text-right font-mono text-red">-0.72%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">-0.30</td>
+            <td class="text-right font-mono">+0.29%</td>
+            <td class="text-right font-mono">-1.01%</td>
+            <td class="text-right font-mono">0.41%</td>
+            <td class="text-center"><span class="badge badge-z-normal">-2.49σ</span></td>
+            <td class="text-right font-mono">0.28%</td>
+            <td class="text-right font-mono">-0.64</td>
+            <td><span class="badge badge-rejected" title="Z-score (-2.49) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="tcs">
+            <td><strong>TCS</strong></td>
+            <td class="text-right font-mono">₹2,188.8</td>
+            <td class="text-right font-mono">₹2,171.0</td>
+            <td class="text-right font-mono text-red">-0.81%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">1.42</td>
+            <td class="text-right font-mono">+0.47%</td>
+            <td class="text-right font-mono">-1.28%</td>
+            <td class="text-right font-mono">0.75%</td>
+            <td class="text-center"><span class="badge badge-z-normal">-1.70σ</span></td>
+            <td class="text-right font-mono">0.46%</td>
+            <td class="text-right font-mono">-0.41</td>
+            <td><span class="badge badge-rejected" title="Z-score (-1.70) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+        <tr class="row-rejected" data-symbol="hcltech">
+            <td><strong>HCLTECH</strong></td>
+            <td class="text-right font-mono">₹1,253.0</td>
+            <td class="text-right font-mono">₹1,242.2</td>
+            <td class="text-right font-mono text-red">-0.86%</td>
+            <td class="text-right font-mono text-green">+0.23%</td>
+            <td class="text-right font-mono">1.87</td>
+            <td class="text-right font-mono">+0.56%</td>
+            <td class="text-right font-mono">-1.42%</td>
+            <td class="text-right font-mono">0.89%</td>
+            <td class="text-center"><span class="badge badge-z-normal">-1.60σ</span></td>
+            <td class="text-right font-mono">0.09%</td>
+            <td class="text-right font-mono">-0.70</td>
+            <td><span class="badge badge-rejected" title="Z-score (-1.60) does not meet 3-sigma threshold (+/-3.0)">❌ Within 3-Sigma</span></td>
+        </tr>
+        
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Section 3: Architecture & Safety Guards -->
+        <div class="section-header">
+            <div class="section-title">
+                <span>🔬 Quantitative Edge & Microstructure Safety Architecture</span>
+            </div>
+        </div>
+        <div class="arch-grid">
+            <div class="arch-card">
+                <h4>📐 3-Sigma Mathematical Edge</h4>
+                <p>Calculates the rolling 60-day overnight gap beta (&beta;) and idiosyncratic gap standard deviation (&sigma;<sub>&epsilon;</sub>) against NIFTY 50.</p>
+                <div class="formula-box">Z = (Gap_Stock - &beta; * Gap_Index) / &sigma;_&epsilon;</div>
+                <p>Only dislocations with |Z| &ge; 3.0 (99.7% statistical mispricing confidence) qualify for execution.</p>
+            </div>
+            <div class="arch-card">
+                <h4>🛡️ Microstructure Circuit Proximity Guard</h4>
+                <p>Rejects any setup opening within <strong>0.50%</strong> of the NSE Upper or Lower Circuit bands.</p>
+                <div class="formula-box">Margin = |IEP - CircuitPrice| / PrevClose &ge; 0.50%</div>
+                <p>Guarantees liquidity and eliminates the fatal risk of getting trapped in a frozen circuit band limit.</p>
+            </div>
+            <div class="arch-card">
+                <h4>⚖️ Order Book Imbalance & Liquidity</h4>
+                <p>Protects against phantom clearing prints and catastrophic falling knife order book sweeps.</p>
+                <div class="formula-box">AVR &ge; 0.20% ADV | -0.80 &le; IBR &le; +0.80</div>
+                <p>Validates that institutions matched volume in the auction and bids/offers are available to absorb the reversion.</p>
+            </div>
+            <div class="arch-card">
+                <h4>⏱️ Precision Sizing & Execution Geometry</h4>
+                <p>Routes strict LIMIT orders at 09:15:00.050 AM with 20 bps slippage buffer and 3.0s cancel timeout.</p>
+                <div class="formula-box">Target = 61.8% Reversion | Max Risk &le; ₹3,000</div>
+                <p>All prices snapped to NSE ₹0.05 tick size. Hard 09:45:00 AM time-stop automatically exits stalled trades.</p>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer>
+            <div>
+                <strong>NSE Pre-Market Sniper</strong> &bull; Zero-Maintenance Cloud Auto-Schedule &bull; Cron: <code>38 3 * * 1-5</code> (09:08 AM IST)
+            </div>
+            <div>
+                Data Source: Official NSE India Pre-Market Auction Feed &bull;
+                <a href="https://github.com/psraghothamrao8/stock_market" target="_blank" rel="noopener">GitHub Repository</a>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Client-side Interactive Filter Script -->
+    <script>
+        let currentFilter = 'all';
+
+        function setFilter(filterType, btn) {
+            currentFilter = filterType;
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            if (btn) btn.classList.add('active');
+            filterTable();
+        }
+
+        function filterTable() {
+            const searchVal = document.getElementById('symbolSearch').value.toLowerCase().trim();
+            const rows = document.querySelectorAll('#scanTable tbody tr');
+
+            rows.forEach(row => {
+                const sym = row.getAttribute('data-symbol') || '';
+                const isActionable = row.classList.contains('row-actionable');
+                const isRejected = row.classList.contains('row-rejected');
+
+                let matchesFilter = true;
+                if (currentFilter === 'actionable' && !isActionable) matchesFilter = false;
+                if (currentFilter === 'rejected' && !isRejected) matchesFilter = false;
+
+                let matchesSearch = sym.includes(searchVal);
+
+                if (matchesFilter && matchesSearch) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+    </script>
+</body>
+</html>

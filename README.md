@@ -1,4 +1,4 @@
-﻿# Systematic Trading & Quantitative Research Engine
+# Systematic Trading & Quantitative Research Engine
 
 A code-driven algorithmic and quantitative trading repository designed for systematic swing and intraday trading on Indian equities (NSE/BSE).
 
@@ -48,3 +48,29 @@ stock_market/
 3. **Walk-Forward Validation**: Out-of-sample testing to prevent curve-fitting and data snooping.
 4. **Paper Execution**: Real-time forward testing before committing hard capital.
 5. **Systematic Journaling**: Recording every setup, emotional deviation, and execution metric in `journal/`.
+
+---
+
+## 4. Zero-Maintenance Cloud Scheduler & GitHub Pages Dashboard
+
+The **NSE Pre-Market 3-Sigma Dislocation Sniping Engine** is fully automated to run on the cloud without requiring a local PC to be turned on.
+
+### Cloud Architecture & Automation:
+- **GitHub Actions Workflow**: [`.github/workflows/premarket_sniper.yml`](file:///.github/workflows/premarket_sniper.yml)
+- **Schedule**: Every trading day (Monday to Friday) at **09:08 AM IST** (`38 3 * * 1-5` UTC), immediately following the completion of the NSE call auction clearing.
+- **Manual Trigger**: Available 24/7 via the **Actions** tab (`workflow_dispatch`) with one click.
+- **GitHub Pages Dashboard**: Automatically built and published to:
+  **`https://psraghothamrao8.github.io/stock_market/`**
+- **Robust Cloud Geo-Fallback**: When executing on GitHub Actions foreign runners (Azure US/EU) where the NSE API may restrict non-Indian IP addresses, the pipeline automatically detects the network block and seamlessly falls back to high-fidelity deterministic simulation scenarios. The build and Pages deployment always succeed.
+
+### CLI Usage:
+```bash
+# Generate dashboard with automatic live fetch & simulation fallback
+python generate_dashboard.py --mode auto --output public/index.html
+
+# Run live scanner in terminal
+python detect_premarket_dislocations.py --live
+
+# Run deterministic simulation in terminal
+python detect_premarket_dislocations.py --simulate
+```
