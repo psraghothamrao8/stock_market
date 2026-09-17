@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -260,10 +261,39 @@ def run_live_pipeline(
             'Volume': 10_000_000
         }, index=dates)
 
+    # Concurrently pre-fetch historical data for targets to eliminate multi-second serial network latency
+    stock_dfs: Dict[str, pd.DataFrame] = {}
+    if target_quotes:
+        workers = min(8, len(target_quotes))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_sym = {
+                executor.submit(fetch_historical_ohlcv, q.symbol, "6mo"): q.symbol
+                for q in target_quotes
+            }
+            for future in future_to_sym:
+                sym = future_to_sym[future]
+                try:
+                    stock_dfs[sym] = future.result()
+                except Exception:
+                    stock_dfs[sym] = pd.DataFrame()
+
     signals: List[DislocationSignal] = []
     for q in target_quotes:
-        s_df = fetch_historical_ohlcv(q.symbol, period="6mo")
-        if s_df.empty:
+        s_df = stock_dfs.get(q.symbol, pd.DataFrame())
+        try:
+            if s_df is None or s_df.empty:
+                hist_stats = HistoricalOvernightStats(
+                    symbol=q.symbol,
+                    beta=1.1,
+                    alpha=0.0,
+                    residual_sigma=0.012,
+                    residual_mean=0.0,
+                    adv_20=max(float(q.matched_volume * 25), 500_000.0),
+                    sample_size=60
+                )
+            else:
+                hist_stats = compute_overnight_gap_stats(s_df, index_df, lookback_days=sniper_cfg.lookback_days)
+        except Exception:
             hist_stats = HistoricalOvernightStats(
                 symbol=q.symbol,
                 beta=1.1,
@@ -273,8 +303,6 @@ def run_live_pipeline(
                 adv_20=max(float(q.matched_volume * 25), 500_000.0),
                 sample_size=60
             )
-        else:
-            hist_stats = compute_overnight_gap_stats(s_df, index_df, lookback_days=sniper_cfg.lookback_days)
 
         sig = engine.evaluate_auction_dislocation(q, index_quote, hist_stats)
         signals.append(sig)
@@ -366,6 +394,7 @@ def render_html_dashboard(data: Dict[str, Any]) -> str:
     actionable_count = len(data["actionable_signals"])
     total_scanned = len(data["signals"])
     orders_count = len(data["orders"])
+    alloc_pct = (data["allocated_capital"] / data["total_capital"]) if data.get("total_capital", 0.0) > 0 else 0.0
 
     # Hero alert banner
     if orders_count > 0:
@@ -465,14 +494,18 @@ def render_html_dashboard(data: Dict[str, Any]) -> str:
         else:
             reason = s.rejection_reasons[0] if s.rejection_reasons else "Below 3-sigma"
             # Shorten reason for clean display
-            if "Lower Circuit" in reason:
+            if "Lower Circuit" in reason or "Upper Circuit" in reason:
                 reason_short = "Circuit Lock (<0.5%)"
-            elif "Upper Circuit" in reason:
-                reason_short = "Circuit Lock (<0.5%)"
-            elif "volume ratio" in reason:
+            elif "Auction volume too low" in reason or "Phantom quote" in reason or "volume ratio" in reason:
                 reason_short = "Illiquid (AVR <0.2%)"
-            elif "sell book imbalance" in reason or "buy book imbalance" in reason:
-                reason_short = "Imbalance Wall (|IBR|>0.8)"
+            elif "Auction volume excessive" in reason or "Block dump" in reason:
+                reason_short = "Block Deal / Leak (>15%)"
+            elif "sell book imbalance" in reason or "Falling knife" in reason:
+                reason_short = "Sell Imbalance (IBR<-0.8)"
+            elif "buy book imbalance" in reason or "Squeeze risk" in reason:
+                reason_short = "Buy Imbalance (IBR>+0.8)"
+            elif "non-F&O" in reason:
+                reason_short = "Non-F&O Short Prohibited"
             elif "Z-score" in reason:
                 reason_short = "Within 3-Sigma"
             else:
@@ -480,8 +513,8 @@ def render_html_dashboard(data: Dict[str, Any]) -> str:
             status_html = f'<span class="badge badge-rejected" title="{reason}">❌ {reason_short}</span>'
             row_filter_cls = "row-rejected"
 
-        gap_color = "text-green" if s.stock_gap_pct > 0 else "text-red"
-        idx_color = "text-green" if s.index_gap_pct > 0 else "text-red"
+        gap_color = "text-green" if s.stock_gap_pct > 0 else ("text-red" if s.stock_gap_pct < 0 else "")
+        idx_color = "text-green" if s.index_gap_pct > 0 else ("text-red" if s.index_gap_pct < 0 else "")
 
         scan_rows.append(f"""
         <tr class="{row_filter_cls}" data-symbol="{sym_clean.lower()}">
@@ -1072,7 +1105,7 @@ def render_html_dashboard(data: Dict[str, Any]) -> str:
             <div class="kpi-card">
                 <div class="kpi-title">Capital Allocated</div>
                 <div class="kpi-value">₹{data['allocated_capital']:,.2f}</div>
-                <div class="kpi-subtext">{data['allocated_capital'] / data['total_capital']:.1%} of budget (Limit &le; 50%)</div>
+                <div class="kpi-subtext">{alloc_pct:.1%} of budget (Limit &le; 50%)</div>
             </div>
             <div class="kpi-card">
                 <div class="kpi-title">Portfolio Heat (Risk)</div>
@@ -1233,11 +1266,20 @@ def render_html_dashboard(data: Dict[str, Any]) -> str:
 
 
 def write_dashboard_file(html_content: str, output_path: str) -> None:
-    """Writes the generated HTML content to the specified path, creating directories as needed."""
+    """Writes the generated HTML content to the specified path, creating directories and .nojekyll as needed."""
     abs_path = os.path.abspath(output_path)
-    os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+    parent_dir = os.path.dirname(abs_path)
+    os.makedirs(parent_dir, exist_ok=True)
     with open(abs_path, "w", encoding="utf-8") as f:
         f.write(html_content)
+    # Ensure .nojekyll exists so GitHub Pages skips Jekyll processing
+    nojekyll_path = os.path.join(parent_dir, ".nojekyll")
+    if not os.path.exists(nojekyll_path):
+        try:
+            with open(nojekyll_path, "w", encoding="utf-8") as f:
+                f.write("")
+        except Exception:
+            pass
     print(f"[SUCCESS] Dashboard written to: {abs_path} ({len(html_content):,} bytes)")
 
 

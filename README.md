@@ -61,6 +61,7 @@ The **NSE Pre-Market 3-Sigma Dislocation Sniping Engine** is fully automated to 
 - **Manual Trigger**: Available 24/7 via the **Actions** tab (`workflow_dispatch`) with one click.
 - **GitHub Pages Dashboard**: Automatically built and published to:
   **`https://psraghothamrao8.github.io/stock_market/`**
+  *(Note: To activate GitHub Pages on the repo, navigate to **Settings** &rarr; **Pages** &rarr; **Build and deployment** &rarr; set **Source** to **GitHub Actions**).*
 - **Robust Cloud Geo-Fallback**: When executing on GitHub Actions foreign runners (Azure US/EU) where the NSE API may restrict non-Indian IP addresses, the pipeline automatically detects the network block and seamlessly falls back to high-fidelity deterministic simulation scenarios. The build and Pages deployment always succeed.
 
 ### CLI Usage:

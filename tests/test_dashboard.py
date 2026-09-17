@@ -13,6 +13,7 @@ import requests
 from generate_dashboard import (
     build_simulation_scenarios,
     get_current_timestamps,
+    main,
     render_html_dashboard,
     run_live_pipeline,
     run_scanner,
@@ -162,3 +163,63 @@ def test_write_dashboard_file(tmp_path):
 
     assert out_file.exists()
     assert out_file.read_text(encoding="utf-8") == content
+    # Verify .nojekyll is created in parent directory
+    nojekyll_file = tmp_path / "subdir" / ".nojekyll"
+    assert nojekyll_file.exists()
+
+
+def test_render_html_dashboard_zero_capital_no_zero_division():
+    """Validates that total_capital = 0 does not raise ZeroDivisionError."""
+    data = run_scanner(mode="simulate", capital=300_000.0, z_threshold=3.0, max_trades=2)
+    data["total_capital"] = 0.0
+    data["allocated_capital"] = 0.0
+    html = render_html_dashboard(data)
+    assert "<!DOCTYPE html>" in html
+    assert "0.0% of budget" in html
+
+
+def test_rejection_reason_badge_formatting():
+    """Validates that microstructure rejection reasons are cleanly mapped to badges without truncation."""
+    data = run_scanner(mode="simulate", capital=300_000.0, z_threshold=3.0, max_trades=2)
+    html = render_html_dashboard(data)
+
+    # Verify INFY gets clean 'Illiquid (AVR <0.2%)' badge and not truncated '❌ Auction volume too low:'
+    assert "❌ Illiquid (AVR &lt;0.2%)" in html or "❌ Illiquid (AVR <0.2%)" in html
+    assert "❌ Auction volume too low" not in html
+
+    # Verify HDFCBANK gets Circuit Lock badge
+    assert "Circuit Lock (&lt;0.5%)" in html or "Circuit Lock (<0.5%)" in html
+
+    # Verify TATAMOTORS gets Imbalance badge
+    assert "Sell Imbalance" in html or "Imbalance Wall" in html
+
+
+def test_run_scanner_live_mode_raises_on_network_failure():
+    """Validates that mode='live' raises exception when live feed is unreachable."""
+    with patch(
+        "engine.premarket_sniper.NSEPreMarketFeedAdapter.fetch_live_auction_quotes",
+        side_effect=requests.exceptions.ConnectionError("Akamai 403 Forbidden")
+    ):
+        with pytest.raises(requests.exceptions.ConnectionError):
+            run_scanner(mode="live")
+
+
+def test_main_cli_execution(tmp_path, monkeypatch):
+    """Validates command-line execution of generate_dashboard.py."""
+    out_file = tmp_path / "dashboard.html"
+    test_args = [
+        "generate_dashboard.py",
+        "--mode", "simulate",
+        "--output", str(out_file),
+        "--capital", "300000",
+        "--threshold", "3.0",
+        "--max-trades", "2",
+    ]
+    monkeypatch.setattr("sys.argv", test_args)
+    main()
+
+    assert out_file.exists()
+    content = out_file.read_text(encoding="utf-8")
+    assert "<!DOCTYPE html>" in content
+    assert (tmp_path / ".nojekyll").exists()
+

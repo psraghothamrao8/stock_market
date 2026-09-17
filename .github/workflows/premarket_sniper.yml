@@ -12,6 +12,7 @@ on:
     paths:
       - '.github/workflows/**'
       - 'engine/**'
+      - 'tests/**'
       - 'generate_dashboard.py'
       - 'detect_premarket_dislocations.py'
       - 'requirements.txt'
